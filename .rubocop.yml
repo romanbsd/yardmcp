@@ -1,0 +1,24 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.2
+Layout/LineLength:
+  Enabled: false
+Lint/RedundantSafeNavigation:
+  Enabled: false
+Metrics/AbcSize:
+  Max: 20
+  CountRepeatedAttributes: false
+Metrics/ClassLength:
+  Max: 200
+Metrics/MethodLength:
+  Max: 25
+Naming/PredicateMethod:
+  Enabled: false
+Style/Documentation:
+  Enabled: false
+Style/ExponentialNotation:
+  Enabled: false
+Style/HashAsLastArrayItem:
+  Enabled: false
+Style/HashSyntax:
+  EnforcedShorthandSyntax: "always"

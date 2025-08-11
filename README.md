@@ -42,35 +42,100 @@ This will install the `yardmcp` executable in your PATH.
 
 ## Usage
 
-### Running the Server
-
-The server is designed to be run as a long-lived process. **Startup may take some time**
-as it builds an index of all YARD documentation for installed gems. During startup,
-progress and logs (including `Index built ...`) are printed to stderr.
-Clients should wait for the `Index built` message on stderr before sending requests.
-
-Start the server:
+1. Install the gem:
 
 ```sh
-yardmcp
+gem install yardmcp
 ```
+
+2. Add to your MCP:
+
+```json
+{
+  "mcpServers": {
+    "yardmcp": {
+      "command": "yardmcp"
+    }
+  }
+}
+```
+
+or
+
+```sh
+claude mcp add-json "yardmcp" '{"command": "yardmcp", "args": []}'
+```
+
+### Usage Examples
+
+Once configured in Claude Code or Cursor, you can ask questions like:
+
+**Basic Documentation Queries:**
+- "Show me the documentation for the String#upcase method"
+- "What methods are available in the Array class?"
+- "List all gems that have YARD documentation"
+- "Show me the source code for ActiveRecord::Base.find"
+
+**Exploring a Gem:**
+- "List all classes in the rails gem"
+- "Show me the methods in ActiveRecord::Base"
+- "What modules are included in ActionController::Base?"
+- "Show me the inheritance hierarchy for ActiveRecord::Migration"
+
+**Search and Discovery:**
+- "Search for methods related to 'validation' in Rails"
+- "Find all classes that include the Enumerable module"
+- "Show me the source location for the Sidekiq::Worker module"
+- "What are the child classes of ApplicationController?"
+
+**Code Understanding:**
+- "Show me the parameters and return type for User.authenticate"
+- "What exceptions does this method raise?"
+- "Show me the ancestor chain for MyCustomClass"
+- "What modules are mixed into this class?"
 
 ### Tool List
 
 The following tools are available (use `tools/list` to discover):
-- ListGemsTool
-- ListClassesTool
-- GetDocTool
-- ChildrenTool
-- MethodsListTool
-- HierarchyTool
-- SearchTool
-- SourceLocationTool
-- CodeSnippetTool
-- AncestorsTool
-- RelatedObjectsTool
+- ListGemsTool - Lists all gems with YARD documentation
+- ListClassesTool - Lists all classes/modules in a specific gem
+- GetDocTool - Fetches detailed documentation for any object
+- ChildrenTool - Lists child objects under a namespace
+- MethodsListTool - Lists all methods for a class/module
+- HierarchyTool - Shows inheritance and module inclusion hierarchy
+- SearchTool - Performs fuzzy/full-text search across all docs
+- SourceLocationTool - Gets file and line number for any object
+- CodeSnippetTool - Fetches the actual source code
+- AncestorsTool - Gets the complete ancestor chain
+- RelatedObjectsTool - Finds mixins, subclasses, and related objects
 
 See the code in `lib/yardmcp.rb` for argument details and return formats.
+
+## Initial Setup
+
+### Building YARD Documentation
+
+Before using yardmcp, you need to build YARD documentation for your installed gems. This creates the `.yardoc` files that yardmcp reads.
+
+**Build documentation for all gems:**
+```sh
+yard gems --rebuild
+```
+This may take several minutes depending on how many gems you have installed.
+
+**Build documentation for specific gems:**
+```sh
+yard gems rails
+yard gems rspec
+```
+
+**Note:** If you encounter errors with Ruby 3.4+, you may need to install YARD from the GitHub master branch:
+```sh
+gem install specific_install
+gem specific_install -l https://github.com/lsegal/yard.git
+```
+
+The YARD documentation is stored in `~/.yard/` and will be automatically used by yardmcp.
 
 ## Development
 

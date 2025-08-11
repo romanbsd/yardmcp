@@ -7,43 +7,95 @@ require 'rubygems'
 require 'yard'
 require 'singleton'
 require_relative 'yardmcp/version'
+require_relative 'yardmcp/lru_cache'
+require_relative 'yardmcp/configuration'
+require_relative 'yardmcp/source_streamer'
 
 # Utility class for YARD operations
 class YardUtils
   include Singleton
-  attr_reader :libraries, :logger, :object_to_gem
+  attr_reader :libraries, :logger, :object_to_gem, :registry_cache
 
   def initialize
     @libraries = {}
     @object_to_gem = {}
     @last_loaded_gem = nil
+    @index_built_for = Set.new
     @logger = Logger.new($stderr)
     @logger.level = Logger::INFO unless ENV['DEBUG']
+    config = YardMCP.configuration
+    @registry_cache = YardMCP::LRUCache.new(
+      capacity: config.cache_capacity,
+      max_memory_mb: config.max_memory_mb
+    )
     build_index
   end
 
   # Loads the .yardoc file for a given gem into the YARD registry.
-  # Caches the last loaded gem to avoid unnecessary reloads.
+  # Uses LRU cache to manage memory efficiently.
   #
   # @param gem_name [String] The name of the gem to load.
-  # @return [Boolean] True if the .yardoc file was loaded, false otherwise.
+  # @return [YARD::Registry] The loaded registry.
   def load_yardoc_for_gem(gem_name)
-    return if @last_loaded_gem == gem_name
+    # Check cache first
+    cached_registry = @registry_cache.get(gem_name)
+    if cached_registry
+      YARD::Registry.instance_variable_set(:@store, cached_registry)
+      @last_loaded_gem = gem_name
+      return cached_registry
+    end
 
+    # Load from disk if not in cache
     spec = libraries[gem_name].first
     ver = "= #{spec.version}"
     dir = YARD::Registry.yardoc_file_for_gem(spec.name, ver)
     build_docs(gem_name) unless yardoc_exists?(dir)
     raise "Yardoc not found for #{gem_name}" unless yardoc_exists?(dir)
 
-    YARD::Registry.load_yardoc(dir)
+    # Create a new registry instance for this gem
+    registry = YARD::RegistryStore.new
+    registry.load(dir)
+
+    # Cache the registry
+    @registry_cache.put(gem_name, registry)
+
+    # Set as current registry
+    YARD::Registry.instance_variable_set(:@store, registry)
     @last_loaded_gem = gem_name
+
+    registry
   end
 
   # Ensures the correct .yardoc is loaded for the given object path
   def ensure_yardoc_loaded_for_object!(object_path)
-    # TODO: Handle multiple gems for the same object path, use some heuristic to determine the correct gem
-    gem_name = @object_to_gem[object_path].first
+    # First check if we already know about this object
+    gem_name = @object_to_gem[object_path]&.first
+
+    # If not, try to find it by searching through gems
+    unless gem_name
+      # Try standard library first
+      %w[yard rubygems json].each do |std_gem|
+        next unless libraries[std_gem]
+
+        build_object_index_for_gem(std_gem)
+        if @object_to_gem[object_path]&.include?(std_gem)
+          gem_name = std_gem
+          break
+        end
+      end
+
+      # If still not found, search all gems (expensive but necessary for first access)
+      unless gem_name
+        libraries.each_key do |g|
+          build_object_index_for_gem(g)
+          if @object_to_gem[object_path]&.include?(g)
+            gem_name = g
+            break
+          end
+        end
+      end
+    end
+
     raise "No documentation found for #{object_path}" unless gem_name
 
     load_yardoc_for_gem(gem_name)
@@ -69,7 +121,7 @@ class YardUtils
   # @param path [String] The YARD path (e.g., 'String#upcase').
   # @return [Hash] A hash containing type, name, namespace, visibility, docstring, parameters, return, and source.
   # @raise [RuntimeError] if the object is not found in the registry.
-  def get_doc(path, gem_name = nil) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity,Metrics/MethodLength
+  def get_doc(path, gem_name = nil)
     if gem_name
       # Load the specific gem's yardoc
       load_yardoc_for_gem(gem_name)
@@ -110,7 +162,10 @@ class YardUtils
     doc[:constants] = obj.constants.map(&:path) if obj.respond_to?(:constants) && obj.constants
     doc[:superclass] = obj.superclass&.path if obj.respond_to?(:superclass) && obj.superclass
     doc[:scope] = obj.scope if obj.respond_to?(:scope) && obj.scope
-    doc[:overridden_method] = obj.overridden_method&.path if obj.respond_to?(:overridden_method) && obj.overridden_method
+    if obj.respond_to?(:overridden_method) && obj.overridden_method
+      doc[:overridden_method] =
+        obj.overridden_method&.path
+    end
 
     doc
   end
@@ -148,9 +203,10 @@ class YardUtils
   # Returns inheritance and inclusion information for a class or module.
   #
   # @param path [String] The YARD path of the class/module.
-  # @return [Hash] A hash with :superclass (String or nil), :included_modules (Array<String>), and :mixins (Array<String>).
+  # @return [Hash] A hash with :superclass (String or nil), :included_modules (Array<String>),
+  #   and :mixins (Array<String>).
   # @raise [RuntimeError] if the object is not found in the registry.
-  def hierarchy(path) # rubocop:disable Metrics/CyclomaticComplexity
+  def hierarchy(path)
     ensure_yardoc_loaded_for_object!(path)
     obj = YARD::Registry.at(path)
     unless obj
@@ -182,7 +238,7 @@ class YardUtils
   #
   # @param path [String] The YARD path of the class/module.
   # @return [Hash] A hash with :included_modules, :mixins, :subclasses.
-  def related_objects(path) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+  def related_objects(path)
     ensure_yardoc_loaded_for_object!(path)
     obj = YARD::Registry.at(path)
     unless obj
@@ -201,7 +257,7 @@ class YardUtils
   #
   # @param query [String] The search query string.
   # @return [Array<Hash>] An array of hashes with :path and :score for matching object paths, ranked by relevance.
-  def search(query) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+  def search(query)
     require 'levenshtein' unless defined?(Levenshtein)
     results = []
     YARD::Registry.all.each do |obj|
@@ -248,18 +304,29 @@ class YardUtils
   end
 
   # Fetches the code snippet for a YARD object from installed gems.
+  # Returns an enumerator for large source files when streaming is enabled.
   #
   # @param path [String] The YARD path (e.g., 'String#upcase').
-  # @return [String, nil] The code snippet if available, otherwise nil.
+  # @return [String, Enumerator, nil] The code snippet if available, otherwise nil.
   # @raise [RuntimeError] if the object is not found in the registry.
-  def code_snippet(path)
+  def code_snippet(path, stream: true)
     ensure_yardoc_loaded_for_object!(path)
     obj = YARD::Registry.at(path)
     unless obj
       logger.error "Object not found: #{path}"
-      return []
+      return nil
     end
-    obj.respond_to?(:source) ? obj.source : nil
+
+    source = obj.respond_to?(:source) ? obj.source : nil
+    return nil unless source
+
+    # Stream large source code if enabled
+    if stream && YardMCP.configuration.enable_streaming
+      streamer = YardMCP::SourceStreamer.new
+      return streamer.stream_source(source) if streamer.should_stream?(source)
+    end
+
+    source
   end
 
   private
@@ -268,27 +335,53 @@ class YardUtils
     dir && File.directory?(dir)
   end
 
+  # Get cache statistics
+  def cache_stats
+    @registry_cache.stats
+  end
+
+  # Clear the cache
+  def clear_cache
+    @registry_cache.clear
+    @last_loaded_gem = nil
+  end
+
   # Build an index mapping object paths to gem names
-  def build_index # rubocop:disable Metrics/AbcSize
-    logger.info 'Building index...'
+  # Now uses lazy loading - only indexes gem names, not all objects
+  def build_index
+    logger.info 'Building gem index...'
     YARD::GemIndex.each do |spec|
       (libraries[spec.name] ||= []) << YARD::Server::LibraryVersion.new(spec.name, spec.version.to_s, nil, :gem)
     end
+    logger.info "Index built: #{libraries.size} gems available"
+  end
 
-    list_gems.each do |gem_name|
-      logger.debug "Loading #{gem_name}..."
-      begin
-        load_yardoc_for_gem(gem_name)
-      rescue StandardError => e
-        logger.error "Error loading #{gem_name}: #{e.message}"
-        next
-      end
-      YARD::Registry.all.each do |obj|
-        logger.debug "Adding #{obj.path} to #{gem_name}"
-        (@object_to_gem[obj.path.to_s] ||= []) << gem_name
-      end
+  # Build object index for a specific gem (called on demand)
+  def build_object_index_for_gem(gem_name)
+    return if @index_built_for.include?(gem_name)
+
+    logger.debug "Building object index for #{gem_name}..."
+
+    # Save current registry state
+    old_store = YARD::Registry.instance_variable_get(:@store)
+
+    # Load the gem's yardoc
+    spec = libraries[gem_name].first
+    ver = "= #{spec.version}"
+    dir = YARD::Registry.yardoc_file_for_gem(spec.name, ver)
+    build_docs(gem_name) unless yardoc_exists?(dir)
+    return unless yardoc_exists?(dir)
+
+    # Load and index the registry
+    YARD::Registry.load_yardoc(dir)
+
+    YARD::Registry.all.each do |obj|
+      (@object_to_gem[obj.path.to_s] ||= []) << gem_name
     end
-    logger.info "Index built: #{libraries.size} gems, #{@object_to_gem.size} objects"
+
+    # Restore previous registry state
+    YARD::Registry.instance_variable_set(:@store, old_store) if old_store
+    @index_built_for << gem_name
   end
 
   def build_docs(gem_name)
@@ -400,7 +493,14 @@ class CodeSnippetTool < FastMcp::Tool
   end
 
   def call(path:)
-    YardUtils.instance.code_snippet(path)
+    result = YardUtils.instance.code_snippet(path, stream: true)
+
+    # If result is an enumerator (streaming), collect chunks
+    if result.is_a?(Enumerator)
+      result.map { |chunk| chunk }.join
+    else
+      result
+    end
   end
 end
 
@@ -428,6 +528,33 @@ class RelatedObjectsTool < FastMcp::Tool
   end
 end
 
+# Tool: Get cache statistics and memory usage
+class CacheStatsTool < FastMcp::Tool
+  description 'Get cache statistics and memory usage information'
+
+  def call
+    stats = YardUtils.instance.cache_stats
+    config = YardMCP.configuration.to_h
+
+    {
+      content: {
+        cache: stats,
+        configuration: config
+      }
+    }
+  end
+end
+
+# Tool: Clear the cache to free memory
+class ClearCacheTool < FastMcp::Tool
+  description 'Clear the documentation cache to free memory'
+
+  def call
+    YardUtils.instance.clear_cache
+    { content: { message: 'Cache cleared successfully' } }
+  end
+end
+
 module YardMCP
   def self.start_server(preload: false)
     YardUtils.instance if preload
@@ -443,6 +570,8 @@ module YardMCP
     server.register_tool(CodeSnippetTool)
     server.register_tool(AncestorsTool)
     server.register_tool(RelatedObjectsTool)
+    server.register_tool(CacheStatsTool)
+    server.register_tool(ClearCacheTool)
     server.start
   end
 end

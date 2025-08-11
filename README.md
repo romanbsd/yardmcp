@@ -26,6 +26,8 @@ This is useful for building documentation browsers, code assistants, or integrat
 - **Search:** Fuzzy/full-text search across all documentation
 - **Source Location:** Find the file and line number for any object
 - **Code Snippet:** Fetch the source code for any object
+- **Cache Management:** View cache statistics and clear cache to free memory
+- **Memory Optimization:** LRU cache with configurable memory limits and automatic eviction
 
 ## Installation
 
@@ -44,15 +46,29 @@ This will install the `yardmcp` executable in your PATH.
 
 ### Running the Server
 
-The server is designed to be run as a long-lived process. **Startup may take some time**
-as it builds an index of all YARD documentation for installed gems. During startup,
-progress and logs (including `Index built ...`) are printed to stderr.
-Clients should wait for the `Index built` message on stderr before sending requests.
+The server is designed to be run as a long-lived process with efficient memory management.
+**Startup is now faster** as it builds only a gem index initially and loads documentation
+on-demand with LRU caching.
 
 Start the server:
 
 ```sh
 yardmcp
+```
+
+### Memory Configuration
+
+The server supports several environment variables for memory management:
+
+- `YARDMCP_CACHE_CAPACITY`: Maximum number of gem registries to keep in cache (default: 10)
+- `YARDMCP_MAX_MEMORY_MB`: Maximum memory usage in megabytes (default: 100)
+- `YARDMCP_ENABLE_STREAMING`: Enable streaming for large source code (default: true)
+- `YARDMCP_STREAM_CHUNK_SIZE`: Chunk size for streaming in bytes (default: 4096)
+
+Example with custom settings:
+
+```sh
+YARDMCP_CACHE_CAPACITY=20 YARDMCP_MAX_MEMORY_MB=200 yardmcp
 ```
 
 ### Tool List
@@ -69,6 +85,8 @@ The following tools are available (use `tools/list` to discover):
 - CodeSnippetTool
 - AncestorsTool
 - RelatedObjectsTool
+- CacheStatsTool
+- ClearCacheTool
 
 See the code in `lib/yardmcp.rb` for argument details and return formats.
 

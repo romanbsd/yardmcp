@@ -5,7 +5,7 @@ require 'open3'
 require 'json'
 require 'rspec'
 
-RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
+RSpec.describe 'yardmcp FastMcp server' do
   let(:timeout) { 20 }
   @server_handles = {}
   @server_mutex = Mutex.new
@@ -87,7 +87,12 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
   it 'lists all available tools' do
     resp = send_mcp_request('tools/list')
     tools = resp['tools'].map { |tool| tool['name'] }
-    expect(tools).to match_array(%w[ListGemsTool ListClassesTool GetDocTool ChildrenTool MethodsListTool HierarchyTool SearchTool SourceLocationTool CodeSnippetTool AncestorsTool RelatedObjectsTool])
+    expected_tools = %w[
+      ListGemsTool ListClassesTool GetDocTool ChildrenTool MethodsListTool
+      HierarchyTool SearchTool SourceLocationTool CodeSnippetTool AncestorsTool
+      RelatedObjectsTool CacheStatsTool ClearCacheTool
+    ]
+    expect(tools).to match_array(expected_tools)
   end
 
   it 'responds to ListGemsTool and includes yard' do

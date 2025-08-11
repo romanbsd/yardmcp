@@ -1,24 +1,61 @@
+# RuboCop configuration for yardmcp
+
 AllCops:
-  NewCops: enable
   TargetRubyVersion: 3.2
-Layout/LineLength:
-  Enabled: false
-Lint/RedundantSafeNavigation:
-  Enabled: false
-Metrics/AbcSize:
-  Max: 20
-  CountRepeatedAttributes: false
-Metrics/ClassLength:
-  Max: 200
-Metrics/MethodLength:
-  Max: 25
-Naming/PredicateMethod:
-  Enabled: false
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'spec/examples.txt'
+
+# Style configurations
 Style/Documentation:
   Enabled: false
-Style/ExponentialNotation:
-  Enabled: false
-Style/HashAsLastArrayItem:
-  Enabled: false
-Style/HashSyntax:
-  EnforcedShorthandSyntax: "always"
+
+# Metrics configurations
+Metrics/ClassLength:
+  Max: 250
+  Exclude:
+    - 'lib/yardmcp.rb'  # YardUtils is necessarily large due to YARD operations
+
+Metrics/MethodLength:
+  Max: 30
+  Exclude:
+    - 'lib/yardmcp.rb'  # Some YARD operations require longer methods
+
+Metrics/AbcSize:
+  Max: 25
+  Exclude:
+    - 'lib/yardmcp.rb'  # Complex YARD registry operations
+
+Metrics/CyclomaticComplexity:
+  Max: 10
+  Exclude:
+    - 'lib/yardmcp.rb'  # ensure_yardoc_loaded_for_object! has necessary complexity
+
+Metrics/PerceivedComplexity:
+  Max: 10
+  Exclude:
+    - 'lib/yardmcp.rb'  # ensure_yardoc_loaded_for_object! has necessary complexity
+
+Metrics/BlockLength:
+  Max: 25
+  Exclude:
+    - 'spec/**/*'  # RSpec blocks are naturally longer
+    - '*.gemspec'
+    - 'Rakefile'
+
+# Layout configurations
+Layout/LineLength:
+  Max: 120
+
+# Naming configurations
+Naming/FileName:
+  Exclude:
+    - 'lib/yardmcp.rb'  # Main file name matches gem name
+
+# Lint configurations
+Lint/MissingSuper:
+  Exclude:
+    - 'lib/yardmcp.rb'  # Singleton pattern doesn't require super

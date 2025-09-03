@@ -11,6 +11,7 @@ require_relative 'yardmcp/version'
 # Utility class for YARD operations
 class YardUtils
   include Singleton
+
   attr_reader :libraries, :logger, :object_to_gem
 
   def initialize
@@ -275,7 +276,8 @@ class YardUtils
       (libraries[spec.name] ||= []) << YARD::Server::LibraryVersion.new(spec.name, spec.version.to_s, nil, :gem)
     end
 
-    list_gems.each do |gem_name|
+    mutex = Mutex.new
+    load_lambda = lambda do |gem_name|
       logger.debug "Loading #{gem_name}..."
       begin
         load_yardoc_for_gem(gem_name)
@@ -284,9 +286,20 @@ class YardUtils
         next
       end
       YARD::Registry.all.each do |obj|
-        logger.debug "Adding #{obj.path} to #{gem_name}"
-        (@object_to_gem[obj.path.to_s] ||= []) << gem_name
+        mutex.synchronize do
+          logger.debug "Adding #{obj.path} to #{gem_name}"
+          (@object_to_gem[obj.path.to_s] ||= []) << gem_name
+        end
       end
+    end
+
+    begin
+      require 'parallel'
+      logger.info 'Using parallel gem for index building'
+      Parallel.each(list_gems, in_processes: 8, &load_lambda)
+    rescue LoadError
+      logger.warn 'parallel gem not found, falling back to single-threaded processing'
+      list_gems.each(&load_lambda)
     end
     logger.info "Index built: #{libraries.size} gems, #{@object_to_gem.size} objects"
   end
@@ -429,7 +442,7 @@ class RelatedObjectsTool < FastMcp::Tool
 end
 
 module YardMCP
-  def self.start_server(preload: false)
+  def self.start_server(preload: true)
     YardUtils.instance if preload
     server = FastMcp::Server.new(name: 'yard-mcp-server', version: YardMCP::VERSION)
     server.register_tool(ListGemsTool)

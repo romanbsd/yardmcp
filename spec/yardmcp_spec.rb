@@ -24,10 +24,11 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
     ready = false
     while (line = stderr.gets)
       puts "SERVER STDERR: #{line.strip}"
-      if line.include?('Index built')
-        ready = true
-        break
-      end
+      next unless line.include?('Index built')
+
+      warn('Server started')
+      ready = true
+      break
     end
     raise 'Server failed to start' unless ready
 
@@ -92,12 +93,12 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
 
   it 'responds to ListGemsTool and includes yard' do
     resp = invoke_mcp_tool('ListGemsTool')
-    expect(resp['content']).to include('yard')
+    expect(resp['content'].map { |item| item['text'] }).to include('yard')
   end
 
   it 'responds to ListClassesTool for yard gem' do
     resp = invoke_mcp_tool('ListClassesTool', { 'gem_name' => 'yard' })
-    expect(resp['content']).to include('YARD', 'YARD::Registry')
+    expect(resp['content'].map { |item| item['text'] }).to include('YARD', 'YARD::Registry')
   end
 
   it 'responds to GetDocTool for YARD::Registry' do
@@ -111,12 +112,12 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
 
   it 'responds to ChildrenTool for YARD' do
     resp = invoke_mcp_tool('ChildrenTool', { 'path' => 'YARD' })
-    expect(resp['content']).to include('YARD::Registry')
+    expect(resp['content'].map { |item| item['text'] }).to include('YARD::Registry')
   end
 
   it 'responds to MethodsListTool for YARD::Registry' do
     resp = invoke_mcp_tool('MethodsListTool', { 'path' => 'YARD::Registry' })
-    expect(resp['content']).to include('YARD::Registry.load_yardoc')
+    expect(resp['content'].map { |item| item['text'] }).to include('YARD::Registry.load_yardoc')
   end
 
   it 'responds to HierarchyTool for YARD::Registry' do
@@ -128,7 +129,7 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
 
   it 'responds to SearchTool for "Registry"' do
     resp = invoke_mcp_tool('SearchTool', { 'query' => 'Registry' })
-    expect(resp['content']&.map { |r| r['path'] }).to include('YARD::Registry')
+    expect(resp['content'].map { |r| r['text'] }).to include('YARD::Registry')
   end
 
   it 'responds to SourceLocationTool for YARD::Registry' do
@@ -139,14 +140,12 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
 
   it 'responds to CodeSnippetTool for YARD::Registry' do
     resp = invoke_mcp_tool('CodeSnippetTool', { 'path' => 'YARD::CodeObjects::Base#name' })
-    expect(resp['content']).to be_an(Array)
-    expect(resp['content'].first['text']).to be_a(String)
+    expect(resp['content']['text']).to be_a(String)
   end
 
   it 'responds to AncestorsTool for YARD::Registry' do
     resp = invoke_mcp_tool('AncestorsTool', { 'path' => 'YARD::Registry' })
-    expect(resp['content']).to be_an(Array)
-    expect(resp['content']).to include('YARD::Registry')
+    expect(resp['content'].map { |item| item['text'] }).to include('YARD::Registry')
   end
 
   it 'responds to RelatedObjectsTool for YARD::Registry' do

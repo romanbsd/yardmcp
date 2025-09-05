@@ -44,7 +44,7 @@ class YardUtils
   # Ensures the correct .yardoc is loaded for the given object path
   def ensure_yardoc_loaded_for_object!(object_path)
     # TODO: Handle multiple gems for the same object path, use some heuristic to determine the correct gem
-    gem_name = @object_to_gem[object_path].first
+    gem_name = @object_to_gem[object_path]&.first
     raise "No documentation found for #{object_path}" unless gem_name
 
     load_yardoc_for_gem(gem_name)
@@ -293,14 +293,14 @@ class YardUtils
       end
     end
 
-    begin
-      require 'parallel'
-      logger.info 'Using parallel gem for index building'
-      Parallel.each(list_gems, in_processes: 8, &load_lambda)
-    rescue LoadError
-      logger.warn 'parallel gem not found, falling back to single-threaded processing'
-      list_gems.each(&load_lambda)
-    end
+    # begin
+    #   require 'parallel'
+    #   logger.info 'Using parallel gem for index building'
+    #   Parallel.each(list_gems, in_processes: 8, &load_lambda)
+    # rescue LoadError
+    logger.warn 'parallel gem not found, falling back to single-threaded processing'
+    list_gems.each(&load_lambda)
+    # end
     logger.info "Index built: #{libraries.size} gems, #{@object_to_gem.size} objects"
   end
 
@@ -315,7 +315,8 @@ class ListGemsTool < FastMcp::Tool
   description 'List all installed gems that have a .yardoc file'
 
   def call
-    { content: YardUtils.instance.list_gems }
+    gems = YardUtils.instance.list_gems
+    { content: gems.map { |gem| { text: gem, type: 'gem' } } }
   end
 end
 
@@ -327,7 +328,8 @@ class ListClassesTool < FastMcp::Tool
   end
 
   def call(gem_name:)
-    { content: YardUtils.instance.list_classes(gem_name) }
+    classes = YardUtils.instance.list_classes(gem_name)
+    { content: classes.map { |cls| { text: cls, type: 'class' } } }
   end
 end
 
@@ -352,7 +354,8 @@ class ChildrenTool < FastMcp::Tool
   end
 
   def call(path:)
-    { content: YardUtils.instance.children(path) }
+    children = YardUtils.instance.children(path)
+    { content: children.map { |child| { text: child, type: 'child' } } }
   end
 end
 
@@ -364,7 +367,8 @@ class MethodsListTool < FastMcp::Tool
   end
 
   def call(path:)
-    { content: YardUtils.instance.methods_list(path) }
+    methods = YardUtils.instance.methods_list(path)
+    { content: methods.map { |method| { text: method, type: 'method' } } }
   end
 end
 
@@ -389,7 +393,8 @@ class SearchTool < FastMcp::Tool
 
   def call(query:)
     # Enhanced search: ranked, fuzzy, and full-text
-    { content: YardUtils.instance.search(query) }
+    results = YardUtils.instance.search(query)
+    { content: results.map { |result| { text: result[:path], score: result[:score], type: 'search_result' } } }
   end
 end
 
@@ -413,7 +418,8 @@ class CodeSnippetTool < FastMcp::Tool
   end
 
   def call(path:)
-    YardUtils.instance.code_snippet(path)
+    snippet = YardUtils.instance.code_snippet(path)
+    { content: { text: snippet, type: 'code_snippet' } }
   end
 end
 
@@ -425,7 +431,8 @@ class AncestorsTool < FastMcp::Tool
   end
 
   def call(path:)
-    { content: YardUtils.instance.ancestors(path) }
+    ancestors = YardUtils.instance.ancestors(path)
+    { content: ancestors.map { |ancestor| { text: ancestor, type: 'ancestor' } } }
   end
 end
 

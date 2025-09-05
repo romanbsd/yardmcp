@@ -103,7 +103,7 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
 
   it 'responds to GetDocTool for YARD::Registry' do
     resp = invoke_mcp_tool('GetDocTool', { 'path' => 'YARD::Registry', 'gem_name' => 'yard' })
-    doc = resp['content']
+    doc = resp['content'].first
     expect(doc['name']).to eq('Registry')
     expect(doc['type']).to eq('module')
     expect(doc['namespace']).to eq('YARD')

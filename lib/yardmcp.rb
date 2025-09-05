@@ -358,7 +358,7 @@ class GetDocTool < FastMcp::Tool
   end
 
   def call(path:, gem_name: nil)
-    { content: YardUtils.instance.get_doc(path, gem_name) }
+    { content: [YardUtils.instance.get_doc(path, gem_name)] }
   end
 end
 

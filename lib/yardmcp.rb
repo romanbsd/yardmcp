@@ -276,32 +276,48 @@ class YardUtils
       (libraries[spec.name] ||= []) << YARD::Server::LibraryVersion.new(spec.name, spec.version.to_s, nil, :gem)
     end
 
-    mutex = Mutex.new
-    load_lambda = lambda do |gem_name|
-      logger.debug "Loading #{gem_name}..."
-      begin
-        load_yardoc_for_gem(gem_name)
-      rescue StandardError => e
-        logger.error "Error loading #{gem_name}: #{e.message}"
-        next
-      end
-      YARD::Registry.all.each do |obj|
-        mutex.synchronize do
-          logger.debug "Adding #{obj.path} to #{gem_name}"
-          (@object_to_gem[obj.path.to_s] ||= []) << gem_name
-        end
+    begin
+      require 'parallel'
+      logger.info 'Using parallel gem for index building'
+
+      # Use processes to avoid YARD thread-safety issues
+      # Each process returns a hash of object_path => [gem_names]
+      results = Parallel.map(list_gems, in_processes: 8) { |gem| process_gem_for_index(gem) }
+      merge_gem_results(results)
+    rescue LoadError
+      logger.warn 'parallel gem not found, falling back to single-threaded processing'
+      results = list_gems.map { |gem| process_gem_for_index(gem) }
+      merge_gem_results(results)
+    end
+    logger.info "Index built: #{libraries.size} gems, #{@object_to_gem.size} objects"
+  end
+
+  # Merge gem processing results into @object_to_gem
+  def merge_gem_results(results)
+    results.each do |gem_objects|
+      gem_objects.each do |obj_path, gem_names|
+        (@object_to_gem[obj_path] ||= []).concat(gem_names)
       end
     end
+  end
 
-    # begin
-    #   require 'parallel'
-    #   logger.info 'Using parallel gem for index building'
-    #   Parallel.each(list_gems, in_processes: 8, &load_lambda)
-    # rescue LoadError
-    logger.warn 'parallel gem not found, falling back to single-threaded processing'
-    list_gems.each(&load_lambda)
-    # end
-    logger.info "Index built: #{libraries.size} gems, #{@object_to_gem.size} objects"
+  # Process a single gem and return its objects as a hash
+  def process_gem_for_index(gem_name)
+    logger.debug "Loading #{gem_name}..."
+    begin
+      load_yardoc_for_gem(gem_name)
+    rescue StandardError => e
+      logger.error "Error loading #{gem_name}: #{e.message}"
+      return {}
+    end
+
+    # Collect all objects for this gem
+    gem_objects = {}
+    YARD::Registry.all.each do |obj|
+      logger.debug "Adding #{obj.path} to #{gem_name}"
+      gem_objects[obj.path.to_s] = [gem_name]
+    end
+    gem_objects
   end
 
   def build_docs(gem_name)

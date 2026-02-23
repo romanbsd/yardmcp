@@ -38,6 +38,7 @@ class YardUtils
     raise "Yardoc not found for #{gem_name}" unless yardoc_exists?(dir)
 
     YARD::Registry.load_yardoc(dir)
+    YARD::Registry.load_all
     @last_loaded_gem = gem_name
   end
 
@@ -54,7 +55,12 @@ class YardUtils
   #
   # @return [Array<String>] An array of gem names with .yardoc files.
   def list_gems
-    libraries.keys.sort
+    libraries.keys.select do |name|
+      lib = libraries[name].first
+      ver = "= #{lib.version}"
+      dir = YARD::Registry.yardoc_file_for_gem(name, ver)
+      dir && File.directory?(dir)
+    end.sort
   end
 
   # Lists all classes and modules in the loaded YARD registry.
@@ -160,7 +166,7 @@ class YardUtils
     end
     {
       superclass: obj.respond_to?(:superclass) && obj.superclass ? obj.superclass.path : nil,
-      included_modules: obj.respond_to?(:included_modules) ? obj.included_modules.map(&:path) : [],
+      included_modules: obj.respond_to?(:mixins) ? obj.mixins.map(&:path) : [],
       mixins: obj.respond_to?(:mixins) ? obj.mixins.map(&:path) : []
     }
   end
@@ -183,7 +189,7 @@ class YardUtils
   #
   # @param path [String] The YARD path of the class/module.
   # @return [Hash] A hash with :included_modules, :mixins, :subclasses.
-  def related_objects(path) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+  def related_objects(path)
     ensure_yardoc_loaded_for_object!(path)
     obj = YARD::Registry.at(path)
     unless obj
@@ -191,9 +197,10 @@ class YardUtils
       return {}
     end
     subclasses = YARD::Registry.all(:class).select { |c| c.superclass && c.superclass.path == obj.path }.map(&:path)
+    mixins_list = obj.respond_to?(:mixins) ? obj.mixins.map(&:path) : []
     {
-      included_modules: obj.respond_to?(:included_modules) ? obj.included_modules.map(&:path) : [],
-      mixins: obj.respond_to?(:mixins) ? obj.mixins.map(&:path) : [],
+      included_modules: mixins_list,
+      mixins: mixins_list,
       subclasses:
     }
   end

@@ -9,7 +9,7 @@ require 'singleton'
 require_relative 'yardmcp/version'
 
 # Utility class for YARD operations
-class YardUtils
+class YardUtils # rubocop:disable Metrics/ClassLength
   include Singleton
 
   attr_reader :libraries, :logger, :object_to_gem
@@ -336,6 +336,7 @@ end
 # Tool: List all gems with .yardoc files
 class ListGemsTool < FastMcp::Tool
   description 'List all installed gems that have a .yardoc file'
+  annotations(title: 'List all installed gems', read_only_hint: true)
 
   def call
     gems = YardUtils.instance.list_gems
@@ -346,6 +347,7 @@ end
 # Tool: List all classes and modules in the loaded YARD registry
 class ListClassesTool < FastMcp::Tool
   description 'List all classes and modules in the loaded YARD registry'
+  annotations(title: 'List all classes and modules', read_only_hint: true)
   arguments do
     required(:gem_name).filled(:string).description('Name of the gem to list classes for')
   end
@@ -359,6 +361,7 @@ end
 # Tool: Fetch documentation for a YARD object
 class GetDocTool < FastMcp::Tool
   description 'Fetch documentation and metadata for a class/module/method from YARD'
+  annotations(title: 'Fetch documentation', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -372,6 +375,7 @@ end
 # Tool: List children under a namespace
 class ChildrenTool < FastMcp::Tool
   description 'List children under a namespace (class/module) in YARD'
+  annotations(title: 'List children under a namespace', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description('YARD path of the namespace')
   end
@@ -385,6 +389,7 @@ end
 # Tool: List methods for a class/module
 class MethodsListTool < FastMcp::Tool
   description 'List methods for a class/module in YARD'
+  annotations(title: 'List methods for a class/module', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
   end
@@ -398,6 +403,7 @@ end
 # Tool: Return inheritance and inclusion info
 class HierarchyTool < FastMcp::Tool
   description 'Return inheritance and inclusion info for a class/module in YARD'
+  annotations(title: 'Return inheritance and inclusion info', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
   end
@@ -410,6 +416,7 @@ end
 # Tool: Perform fuzzy/full-text search
 class SearchTool < FastMcp::Tool
   description 'Perform fuzzy/full-text search in YARD registry'
+  annotations(title: 'Perform fuzzy/full-text search', read_only_hint: true)
   arguments do
     required(:query).filled(:string).description('Search query')
   end
@@ -424,6 +431,7 @@ end
 # Tool: Fetch source file and line number for a YARD object
 class SourceLocationTool < FastMcp::Tool
   description 'Fetch the source file and line number for a class/module/method from YARD'
+  annotations(title: 'Fetch the source file and line number', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
   end
@@ -436,6 +444,7 @@ end
 # Tool: Fetch code snippet for a YARD object from installed gems
 class CodeSnippetTool < FastMcp::Tool
   description 'Fetch the code snippet for a class/module/method from installed gems using YARD'
+  annotations(title: 'Fetch the code snippet', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
   end
@@ -449,6 +458,7 @@ end
 # Tool: Fetch the full ancestor chain (superclasses and included modules) for a class/module in YARD
 class AncestorsTool < FastMcp::Tool
   description 'Fetch the full ancestor chain (superclasses and included modules) for a class/module in YARD'
+  annotations(title: 'Fetch the full ancestor chain', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
   end
@@ -462,6 +472,7 @@ end
 # Tool: List related objects: included modules, mixins, and subclasses for a class/module in YARD
 class RelatedObjectsTool < FastMcp::Tool
   description 'List related objects: included modules, mixins, and subclasses for a class/module in YARD'
+  annotations(title: 'List related objects', read_only_hint: true)
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
   end

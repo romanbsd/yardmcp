@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    yardmcp (0.2.1)
+    yardmcp (0.2.2)
       fast-mcp (~> 1.5)
       levenshtein (~> 0.2.2)
       yard (~> 0.9.37)

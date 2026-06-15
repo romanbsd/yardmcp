@@ -27,6 +27,7 @@ This is useful for building documentation browsers, code assistants, or integrat
 - **Search:** Fuzzy/full-text search across all documentation
 - **Source Location:** Find the file and line number for any object
 - **Code Snippet:** Fetch the source code for any object
+- **MCP Resources:** Read YARD docs and source via `yard://` resource URIs
 
 ## Installation
 
@@ -84,6 +85,26 @@ The following tools are available (use `tools/list` to discover):
 Tool results return standard MCP text content and machine-readable data in
 `structuredContent`. Tool execution failures return `isError: true` without
 local stack traces.
+
+All tools publish `outputSchema` metadata in `tools/list`.
+
+Object-oriented tool results include `resource_uris` when `gem_name` is supplied,
+so clients can pivot from a tool result to the corresponding documentation or
+source resource.
+
+### Resources
+
+The server exposes templated MCP resources:
+
+- `yard://gem/{gem_name}/object/{+path}` returns JSON documentation for a YARD object.
+- `yard://gem/{gem_name}/source/{+path}` returns source text for a YARD object.
+
+Examples:
+
+```text
+yard://gem/yard/object/YARD::Registry
+yard://gem/yard/source/YARD::CodeObjects::Base#name
+```
 
 ## Development
 

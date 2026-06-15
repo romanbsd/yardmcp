@@ -6,6 +6,45 @@ require 'json'
 require 'rspec'
 require 'tmpdir'
 require 'fileutils'
+require_relative '../lib/yardmcp'
+
+RSpec.describe YardUtils do
+  it 'reports ambiguous object candidates with gem names and versions' do
+    utils = described_class.instance
+    utils.object_to_gem['Ambiguous::Object'] = %w[yard yardmcp-spec-a yardmcp-spec-b]
+    utils.libraries['yardmcp-spec-a'] = [YARD::Server::LibraryVersion.new('yardmcp-spec-a', '1.2.3', nil, :gem)]
+    utils.libraries['yardmcp-spec-b'] = [YARD::Server::LibraryVersion.new('yardmcp-spec-b', '2.0.0', nil, :gem)]
+
+    expect { utils.ensure_yardoc_loaded_for_object!('Ambiguous::Object') }
+      .to raise_error(YardUtils::AmbiguousObjectError) { |error|
+        expect(error.path).to eq('Ambiguous::Object')
+        expect(error.candidates).to include(
+          { gem_name: 'yardmcp-spec-a', versions: ['1.2.3'] },
+          { gem_name: 'yardmcp-spec-b', versions: ['2.0.0'] }
+        )
+      }
+  ensure
+    utils&.object_to_gem&.delete('Ambiguous::Object')
+    utils&.libraries&.delete('yardmcp-spec-a')
+    utils&.libraries&.delete('yardmcp-spec-b')
+  end
+end
+
+RSpec.describe YardTool do
+  it 'formats ambiguous object errors with structured candidates' do
+    candidates = [{ gem_name: 'alpha', versions: ['1.0.0'] }, { gem_name: 'beta', versions: ['2.0.0'] }]
+    result = described_class.new.send(:with_yard_errors) do
+      raise YardUtils::AmbiguousObjectError.new('Shared::Object', candidates)
+    end
+
+    expect(result[:isError]).to be(true)
+    expect(result[:structuredContent]).to eq(
+      error: 'ambiguous_object',
+      path: 'Shared::Object',
+      candidates:
+    )
+  end
+end
 
 RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
   let(:timeout) { 30 }
@@ -130,7 +169,52 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
                               'capabilities' => {},
                               'clientInfo' => { 'name' => 'yardmcp-spec', 'version' => '1.0' }
                             })
-    expect(resp['capabilities']).to eq('tools' => {})
+    expect(resp['capabilities']).to eq('tools' => {}, 'resources' => {})
+  end
+
+  it 'publishes output schemas for all tools' do
+    resp = send_mcp_request('tools/list')
+    tools_by_name = resp['tools'].to_h { |tool| [tool['name'], tool] }
+
+    expect(tools_by_name.values).to all(include('outputSchema'))
+    expect(tools_by_name['ListGemsTool']['outputSchema']['required']).to include('gems')
+    expect(tools_by_name['ListClassesTool']['outputSchema']['required']).to include('gem_name', 'classes')
+    expect(tools_by_name['GetDocTool']['outputSchema']['required']).to include('document')
+    expect(tools_by_name['ChildrenTool']['outputSchema']['required']).to include('children')
+    expect(tools_by_name['MethodsListTool']['outputSchema']['required']).to include('methods')
+    expect(tools_by_name['SourceLocationTool']['outputSchema']['required']).to include('source_location')
+    expect(tools_by_name['HierarchyTool']['outputSchema']['required']).to include('hierarchy')
+    expect(tools_by_name['SearchTool']['outputSchema']['required']).to include('results')
+    expect(tools_by_name['CodeSnippetTool']['outputSchema']['required']).to include('snippet')
+    expect(tools_by_name['AncestorsTool']['outputSchema']['required']).to include('ancestors')
+    expect(tools_by_name['RelatedObjectsTool']['outputSchema']['required']).to include('related_objects')
+    expect(tools_by_name['BuildGemDocsTool']['outputSchema']['required']).to include('gem_name', 'indexed')
+  end
+
+  it 'lists YARD resource templates' do
+    resp = send_mcp_request('resources/templates/list')
+    templates = resp['resourceTemplates'].map { |template| template['uriTemplate'] }
+
+    expect(templates).to include('yard://gem/{gem_name}/object/{+path}')
+    expect(templates).to include('yard://gem/{gem_name}/source/{+path}')
+  end
+
+  it 'reads object documentation as an MCP resource' do
+    resp = send_mcp_request('resources/read', { 'uri' => 'yard://gem/yard/object/YARD::Registry' })
+    content = resp['contents'].first
+    document = JSON.parse(content['text'])['document']
+
+    expect(content['mimeType']).to eq('application/json')
+    expect(document['name']).to eq('Registry')
+    expect(document['type']).to eq('module')
+  end
+
+  it 'reads source as an MCP resource, including method paths with fragments' do
+    resp = send_mcp_request('resources/read', { 'uri' => 'yard://gem/yard/source/YARD::CodeObjects::Base#name' })
+    content = resp['contents'].first
+
+    expect(content['mimeType']).to eq('text/plain')
+    expect(content['text']).to include('def name')
   end
 
   it 'responds to ListGemsTool with text content and structured data' do
@@ -149,15 +233,21 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
   it 'responds to GetDocTool for YARD::Registry' do
     resp = invoke_mcp_tool('GetDocTool', { 'path' => 'YARD::Registry', 'gem_name' => 'yard' })
     doc = resp['structuredContent']['document']
+    resource_uris = resp['structuredContent']['resource_uris']
     expect(doc['name']).to eq('Registry')
     expect(doc['type']).to eq('module')
     expect(doc['namespace']).to eq('YARD')
     expect(doc['docstring']).to be_a(String)
+    expect(resource_uris).to eq(
+      'object' => 'yard://gem/yard/object/YARD::Registry',
+      'source' => 'yard://gem/yard/source/YARD::Registry'
+    )
   end
 
   it 'responds to ChildrenTool for YARD' do
     resp = invoke_mcp_tool('ChildrenTool', { 'path' => 'YARD', 'gem_name' => 'yard' })
     expect(resp['structuredContent']['children']).to include('YARD::Registry')
+    expect(resp['structuredContent']['resource_uris']['object']).to eq('yard://gem/yard/object/YARD')
   end
 
   it 'responds to MethodsListTool for YARD::Registry' do
@@ -194,6 +284,10 @@ RSpec.describe 'yardmcp FastMcp server' do # rubocop:disable Metrics/BlockLength
     resp = invoke_mcp_tool('CodeSnippetTool', { 'path' => 'YARD::CodeObjects::Base#name', 'gem_name' => 'yard', 'max_chars' => 1000 })
     expect(resp['structuredContent']['snippet']).to be_a(String)
     expect(resp['structuredContent']['snippet'].length).to be <= 1050
+    expect(resp['structuredContent']['resource_uris']).to eq(
+      'object' => 'yard://gem/yard/object/YARD::CodeObjects::Base#name',
+      'source' => 'yard://gem/yard/source/YARD::CodeObjects::Base#name'
+    )
   end
 
   it 'responds to AncestorsTool for YARD::Registry' do

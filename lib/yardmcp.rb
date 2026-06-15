@@ -17,6 +17,16 @@ class YardUtils # rubocop:disable Metrics/ClassLength
 
   class DocumentationError < StandardError; end
 
+  class AmbiguousObjectError < DocumentationError
+    attr_reader :path, :candidates
+
+    def initialize(path, candidates)
+      @path = path
+      @candidates = candidates
+      super("Multiple gems contain '#{path}'. Pass gem_name.")
+    end
+  end
+
   attr_reader :libraries, :logger, :object_to_gem
 
   def initialize
@@ -49,7 +59,7 @@ class YardUtils # rubocop:disable Metrics/ClassLength
   def ensure_yardoc_loaded_for_object!(object_path)
     gem_names = @object_to_gem[object_path]
     raise DocumentationError, "No indexed documentation contains '#{object_path}'. Pass gem_name if you know the gem." if gem_names.nil? || gem_names.empty?
-    raise DocumentationError, "Multiple gems contain '#{object_path}': #{gem_names.join(', ')}. Pass gem_name." if gem_names.uniq.size > 1
+    raise AmbiguousObjectError.new(object_path, gem_candidates(gem_names)) if gem_names.uniq.size > 1
 
     load_yardoc_for_gem(gem_names.first)
   end
@@ -65,6 +75,15 @@ class YardUtils # rubocop:disable Metrics/ClassLength
 
   def list_installed_gems
     libraries.keys.sort
+  end
+
+  def gem_candidates(gem_names)
+    gem_names.uniq.sort.map do |gem_name|
+      {
+        gem_name:,
+        versions: Array(libraries[gem_name]).map { |library| library.version.to_s }.uniq.sort
+      }
+    end
   end
 
   # Lists all classes and modules in the loaded YARD registry.
@@ -341,7 +360,217 @@ class YardUtils # rubocop:disable Metrics/ClassLength
   end
 end
 
+module YardSchemas
+  RESOURCE_URIS_SCHEMA = {
+    type: 'object',
+    properties: {
+      object: { type: 'string' },
+      source: { type: 'string' }
+    },
+    required: %w[object source]
+  }.freeze
+
+  def self.array_schema(name)
+    {
+      type: 'object',
+      properties: {
+        name => { type: 'array', items: { type: 'string' } }
+      },
+      required: [name.to_s]
+    }.freeze
+  end
+
+  def self.path_array_schema(name)
+    {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        gem_name: { type: %w[string null] },
+        resource_uris: RESOURCE_URIS_SCHEMA,
+        name => { type: 'array', items: { type: 'string' } }
+      },
+      required: %w[path resource_uris] + [name.to_s]
+    }.freeze
+  end
+
+  LIST_GEMS_SCHEMA = array_schema(:gems)
+
+  LIST_CLASSES_SCHEMA = {
+    type: 'object',
+    properties: {
+      gem_name: { type: 'string' },
+      classes: { type: 'array', items: { type: 'string' } }
+    },
+    required: %w[gem_name classes]
+  }.freeze
+
+  DOC_OBJECT_SCHEMA = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      resource_uris: RESOURCE_URIS_SCHEMA,
+      document: {
+        type: 'object',
+        properties: {
+          type: { type: 'string' },
+          name: { type: 'string' },
+          namespace: { type: %w[string null] },
+          visibility: { type: %w[string null] },
+          docstring: { type: 'string' },
+          parameters: { type: %w[array null] },
+          return: { type: %w[object null] },
+          source: { type: %w[string null] },
+          tags: { type: 'array' }
+        },
+        required: %w[type name docstring tags]
+      }
+    },
+    required: %w[resource_uris document]
+  }.freeze
+
+  CHILDREN_SCHEMA = path_array_schema(:children)
+
+  METHODS_SCHEMA = path_array_schema(:methods)
+
+  SOURCE_LOCATION_SCHEMA = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      resource_uris: RESOURCE_URIS_SCHEMA,
+      source_location: {
+        type: 'object',
+        properties: {
+          file: { type: %w[string null] },
+          line: { type: %w[integer null] }
+        },
+        required: %w[file line]
+      }
+    },
+    required: %w[path resource_uris source_location]
+  }.freeze
+
+  HIERARCHY_SCHEMA = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      resource_uris: RESOURCE_URIS_SCHEMA,
+      hierarchy: {
+        type: 'object',
+        properties: {
+          superclass: { type: %w[string null] },
+          included_modules: { type: 'array', items: { type: 'string' } },
+          mixins: { type: 'array', items: { type: 'string' } }
+        },
+        required: %w[superclass included_modules mixins]
+      }
+    },
+    required: %w[path resource_uris hierarchy]
+  }.freeze
+
+  SEARCH_SCHEMA = {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+      results: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            score: { type: 'integer' }
+          },
+          required: %w[path score]
+        }
+      }
+    },
+    required: %w[query limit offset results]
+  }.freeze
+
+  CODE_SNIPPET_SCHEMA = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      resource_uris: RESOURCE_URIS_SCHEMA,
+      snippet: { type: 'string' }
+    },
+    required: %w[path resource_uris snippet]
+  }.freeze
+
+  ANCESTORS_SCHEMA = path_array_schema(:ancestors)
+
+  RELATED_OBJECTS_SCHEMA = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      gem_name: { type: %w[string null] },
+      resource_uris: RESOURCE_URIS_SCHEMA,
+      related_objects: {
+        type: 'object',
+        properties: {
+          included_modules: { type: 'array', items: { type: 'string' } },
+          mixins: { type: 'array', items: { type: 'string' } },
+          subclasses: { type: 'array', items: { type: 'string' } }
+        },
+        required: %w[included_modules mixins subclasses]
+      }
+    },
+    required: %w[path resource_uris related_objects]
+  }.freeze
+
+  BUILD_GEM_DOCS_SCHEMA = {
+    type: 'object',
+    properties: {
+      gem_name: { type: 'string' },
+      indexed: { type: 'boolean' }
+    },
+    required: %w[gem_name indexed]
+  }.freeze
+end
+
+module YardMcpToolListOutputSchema
+  private
+
+  def handle_tools_list(id)
+    tools_list = @tools.values.map do |tool|
+      tool_info = {
+        name: tool.tool_name,
+        description: tool.description || '',
+        inputSchema: tool.input_schema_to_json || { type: 'object', properties: {}, required: [] }
+      }
+      tool_info[:outputSchema] = tool.output_schema if tool.respond_to?(:output_schema) && tool.output_schema
+      tool_info[:annotations] = camel_case_annotations(tool.annotations) unless tool.annotations.empty?
+      tool_info
+    end
+
+    send_result({ tools: tools_list }, id)
+  end
+
+  def camel_case_annotations(annotations)
+    annotations.to_h do |key, value|
+      camel_key = key.to_s.gsub(/_([a-z])/) { ::Regexp.last_match(1).upcase }.to_sym
+      [camel_key, value]
+    end
+  end
+end
+
+FastMcp::Server.prepend(YardMcpToolListOutputSchema)
+
 class YardTool < FastMcp::Tool
+  class << self
+    attr_reader :output_schema
+
+    def returns(schema)
+      @output_schema = schema
+    end
+  end
+
   private
 
   def ok(structured_content, text: nil)
@@ -354,11 +583,60 @@ class YardTool < FastMcp::Tool
 
   def with_yard_errors
     yield
+  rescue YardUtils::AmbiguousObjectError => e
+    {
+      content: [{ type: 'text', text: e.message }],
+      structuredContent: {
+        error: 'ambiguous_object',
+        path: e.path,
+        candidates: e.candidates
+      },
+      isError: true
+    }
   rescue YardUtils::DocumentationError, ArgumentError => e
     {
       content: [{ type: 'text', text: e.message }],
+      structuredContent: {
+        error: 'documentation_error',
+        message: e.message
+      },
       isError: true
     }
+  end
+
+  def resource_uris(gem_name, path)
+    return nil unless gem_name
+
+    {
+      object: "yard://gem/#{gem_name}/object/#{path}",
+      source: "yard://gem/#{gem_name}/source/#{path}"
+    }
+  end
+end
+
+class YardObjectResource < FastMcp::Resource
+  uri 'yard://gem/{gem_name}/object/{+path}'
+  resource_name 'YARD object documentation'
+  description 'Read structured YARD documentation for a gem object'
+  mime_type 'application/json'
+
+  def content
+    JSON.pretty_generate(document: YardUtils.instance.get_doc(params[:path], params[:gem_name]))
+  rescue YardUtils::DocumentationError, ArgumentError => e
+    JSON.pretty_generate(error: e.message)
+  end
+end
+
+class YardSourceResource < FastMcp::Resource
+  uri 'yard://gem/{gem_name}/source/{+path}'
+  resource_name 'YARD object source'
+  description 'Read source code for a documented YARD object'
+  mime_type 'text/plain'
+
+  def content
+    YardUtils.instance.code_snippet(params[:path], params[:gem_name]).to_s
+  rescue YardUtils::DocumentationError, ArgumentError => e
+    "Error: #{e.message}"
   end
 end
 
@@ -366,6 +644,7 @@ end
 class ListGemsTool < YardTool
   description 'List all installed gems that have a .yardoc file'
   annotations(title: 'List all installed gems', read_only_hint: true)
+  returns YardSchemas::LIST_GEMS_SCHEMA
 
   def call
     gems = YardUtils.instance.list_gems
@@ -377,6 +656,7 @@ end
 class ListClassesTool < YardTool
   description 'List all classes and modules in the loaded YARD registry'
   annotations(title: 'List all classes and modules', read_only_hint: true)
+  returns YardSchemas::LIST_CLASSES_SCHEMA
   arguments do
     required(:gem_name).filled(:string).description('Name of the gem to list classes for')
   end
@@ -393,6 +673,7 @@ end
 class GetDocTool < YardTool
   description 'Fetch documentation and metadata for a class/module/method from YARD'
   annotations(title: 'Fetch documentation', read_only_hint: true)
+  returns YardSchemas::DOC_OBJECT_SCHEMA
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -401,7 +682,7 @@ class GetDocTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       doc = YardUtils.instance.get_doc(path, gem_name)
-      ok({ document: doc }, text: JSON.pretty_generate(doc))
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), document: doc }, text: JSON.pretty_generate(doc))
     end
   end
 end
@@ -410,6 +691,7 @@ end
 class ChildrenTool < YardTool
   description 'List children under a namespace (class/module) in YARD'
   annotations(title: 'List children under a namespace', read_only_hint: true)
+  returns YardSchemas::CHILDREN_SCHEMA
   arguments do
     required(:path).filled(:string).description('YARD path of the namespace')
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -418,7 +700,7 @@ class ChildrenTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       children = YardUtils.instance.children(path, gem_name)
-      ok({ path:, gem_name:, children: }, text: children.join("\n"))
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), children: }, text: children.join("\n"))
     end
   end
 end
@@ -427,6 +709,7 @@ end
 class MethodsListTool < YardTool
   description 'List methods for a class/module in YARD'
   annotations(title: 'List methods for a class/module', read_only_hint: true)
+  returns YardSchemas::METHODS_SCHEMA
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -435,7 +718,7 @@ class MethodsListTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       methods = YardUtils.instance.methods_list(path, gem_name)
-      ok({ path:, gem_name:, methods: }, text: methods.join("\n"))
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), methods: }, text: methods.join("\n"))
     end
   end
 end
@@ -444,6 +727,7 @@ end
 class HierarchyTool < YardTool
   description 'Return inheritance and inclusion info for a class/module in YARD'
   annotations(title: 'Return inheritance and inclusion info', read_only_hint: true)
+  returns YardSchemas::HIERARCHY_SCHEMA
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -452,7 +736,7 @@ class HierarchyTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       hierarchy = YardUtils.instance.hierarchy(path, gem_name)
-      ok({ path:, gem_name:, hierarchy: })
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), hierarchy: })
     end
   end
 end
@@ -461,6 +745,7 @@ end
 class SearchTool < YardTool
   description 'Perform fuzzy/full-text search in YARD registry'
   annotations(title: 'Perform fuzzy/full-text search', read_only_hint: true)
+  returns YardSchemas::SEARCH_SCHEMA
   arguments do
     required(:query).filled(:string).description('Search query')
     optional(:gem_name).filled(:string).description('Optional gem name to search docstrings and paths within')
@@ -480,6 +765,7 @@ end
 class SourceLocationTool < YardTool
   description 'Fetch the source file and line number for a class/module/method from YARD'
   annotations(title: 'Fetch the source file and line number', read_only_hint: true)
+  returns YardSchemas::SOURCE_LOCATION_SCHEMA
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -488,7 +774,7 @@ class SourceLocationTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       location = YardUtils.instance.source_location(path, gem_name)
-      ok({ path:, gem_name:, source_location: location })
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), source_location: location })
     end
   end
 end
@@ -497,6 +783,7 @@ end
 class CodeSnippetTool < YardTool
   description 'Fetch the code snippet for a class/module/method from installed gems using YARD'
   annotations(title: 'Fetch the code snippet', read_only_hint: true)
+  returns YardSchemas::CODE_SNIPPET_SCHEMA
   arguments do
     required(:path).filled(:string).description("YARD path (e.g. 'String#upcase')")
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -506,7 +793,7 @@ class CodeSnippetTool < YardTool
   def call(path:, gem_name: nil, max_chars: YardUtils::MAX_SOURCE_CHARS)
     with_yard_errors do
       snippet = YardUtils.instance.code_snippet(path, gem_name, max_chars:)
-      ok({ path:, gem_name:, snippet: }, text: snippet.to_s)
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), snippet: }, text: snippet.to_s)
     end
   end
 end
@@ -515,6 +802,7 @@ end
 class AncestorsTool < YardTool
   description 'Fetch the full ancestor chain (superclasses and included modules) for a class/module in YARD'
   annotations(title: 'Fetch the full ancestor chain', read_only_hint: true)
+  returns YardSchemas::ANCESTORS_SCHEMA
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -523,7 +811,7 @@ class AncestorsTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       ancestors = YardUtils.instance.ancestors(path, gem_name)
-      ok({ path:, gem_name:, ancestors: }, text: ancestors.join("\n"))
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), ancestors: }, text: ancestors.join("\n"))
     end
   end
 end
@@ -532,6 +820,7 @@ end
 class RelatedObjectsTool < YardTool
   description 'List related objects: included modules, mixins, and subclasses for a class/module in YARD'
   annotations(title: 'List related objects', read_only_hint: true)
+  returns YardSchemas::RELATED_OBJECTS_SCHEMA
   arguments do
     required(:path).filled(:string).description('YARD path of the class/module')
     optional(:gem_name).filled(:string).description("Optional gem name to load specific gem's documentation")
@@ -540,7 +829,7 @@ class RelatedObjectsTool < YardTool
   def call(path:, gem_name: nil)
     with_yard_errors do
       related = YardUtils.instance.related_objects(path, gem_name)
-      ok({ path:, gem_name:, related_objects: related })
+      ok({ path:, gem_name:, resource_uris: resource_uris(gem_name, path), related_objects: related })
     end
   end
 end
@@ -549,6 +838,7 @@ end
 class BuildGemDocsTool < YardTool
   description 'Build the local YARD documentation index for an installed gem'
   annotations(title: 'Build YARD docs for a gem', read_only_hint: false)
+  returns YardSchemas::BUILD_GEM_DOCS_SCHEMA
   arguments do
     required(:gem_name).filled(:string).description('Name of the installed gem to index')
   end
@@ -567,19 +857,31 @@ module YardMCP
     server = FastMcp::Server.new(name: 'yard-mcp-server', version: YardMCP::VERSION)
     server.capabilities.clear
     server.capabilities[:tools] = {}
-    server.register_tool(ListGemsTool)
-    server.register_tool(ListClassesTool)
-    server.register_tool(GetDocTool)
-    server.register_tool(ChildrenTool)
-    server.register_tool(MethodsListTool)
-    server.register_tool(HierarchyTool)
-    server.register_tool(SearchTool)
-    server.register_tool(SourceLocationTool)
-    server.register_tool(CodeSnippetTool)
-    server.register_tool(AncestorsTool)
-    server.register_tool(RelatedObjectsTool)
-    server.register_tool(BuildGemDocsTool)
+    server.capabilities[:resources] = {}
+    register_tools(server)
+    register_resources(server)
     server.start
+  end
+
+  def self.register_tools(server)
+    server.register_tools(
+      ListGemsTool,
+      ListClassesTool,
+      GetDocTool,
+      ChildrenTool,
+      MethodsListTool,
+      HierarchyTool,
+      SearchTool,
+      SourceLocationTool,
+      CodeSnippetTool,
+      AncestorsTool,
+      RelatedObjectsTool,
+      BuildGemDocsTool
+    )
+  end
+
+  def self.register_resources(server)
+    server.register_resources(YardObjectResource, YardSourceResource)
   end
 end
 

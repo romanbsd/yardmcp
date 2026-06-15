@@ -16,6 +16,7 @@ This is useful for building documentation browsers, code assistants, or integrat
 ## Features
 
 - **List Gems:** See all installed gems with YARD documentation
+- **Build Gem Docs:** Explicitly build a local YARD index for an installed gem
 - **List Classes/Modules:** Explore all classes/modules in a gem
 - **Fetch Documentation:** Get docstrings, tags, parameters, return types, and more for any class/module/method
 - **List Children:** List constants, classes, modules, and methods under a namespace
@@ -55,10 +56,20 @@ Start the server:
 yardmcp
 ```
 
+Read-only query tools do not build missing YARD indexes. If a gem is installed
+but has no local YARD index yet, run:
+
+```sh
+yard gems <gemname>
+```
+
+or call `BuildGemDocsTool` explicitly.
+
 ### Tool List
 
 The following tools are available (use `tools/list` to discover):
 - ListGemsTool
+- BuildGemDocsTool
 - ListClassesTool
 - GetDocTool
 - ChildrenTool
@@ -70,7 +81,9 @@ The following tools are available (use `tools/list` to discover):
 - AncestorsTool
 - RelatedObjectsTool
 
-See the code in `lib/yardmcp.rb` for argument details and return formats.
+Tool results return standard MCP text content and machine-readable data in
+`structuredContent`. Tool execution failures return `isError: true` without
+local stack traces.
 
 ## Development
 

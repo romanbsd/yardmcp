@@ -22,3 +22,5 @@ Style/HashAsLastArrayItem:
   Enabled: false
 Style/HashSyntax:
   EnforcedShorthandSyntax: "always"
+Style/OneClassPerFile:
+  Enabled: false
